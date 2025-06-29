@@ -5,7 +5,6 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// /proxy?url=<真实flv地址>
 app.get('/proxy', (req, res) => {
   const url = req.query.url;
 
@@ -19,10 +18,14 @@ app.get('/proxy', (req, res) => {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Connection': 'keep-alive'
+    'Connection': 'keep-alive',
+    'Host': 'live.bbapcall.com',
+    'X-Forwarded-For': '119.28.28.28',
+    'X-Real-IP': '119.28.28.28',
+    'Cache-Control': 'no-cache'
   };
 
-  console.log(`Proxying: ${url}`);
+  console.log(`Proxying to: ${url}`);
 
   req.pipe(request({ url, headers }))
     .on('error', (err) => {
