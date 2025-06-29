@@ -1,3 +1,11 @@
+const express = require('express');
+const request = require('request');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+
+// /proxy?url=<真实flv地址>
 app.get('/proxy', (req, res) => {
   const url = req.query.url;
 
@@ -14,8 +22,17 @@ app.get('/proxy', (req, res) => {
     'Connection': 'keep-alive'
   };
 
-  req.pipe(request({ url, headers })).on('error', err => {
-    console.error('Proxy error:', err.message);
-    res.status(500).send('Proxy failed');
-  }).pipe(res);
+  console.log(`Proxying: ${url}`);
+
+  req.pipe(request({ url, headers }))
+    .on('error', (err) => {
+      console.error('Proxy Error:', err.message);
+      res.status(500).send('Proxy Failed');
+    })
+    .pipe(res);
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`✅ FLV Proxy server running at http://localhost:${port}`);
 });
