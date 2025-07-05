@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Player</title>
+  <link rel="icon" href="data:,"> <!-- ✅ 不显示标签图标 -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/5.10.2/alt/video-js-cdn.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/5.10.2/video.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/videojs-contrib-hls/3.0.2/videojs-contrib-hls.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: black;
+    }
+    .video-js {
+      width: 100% !important;
+      height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+
+<video id="video" class="video-js vjs-default-skin" playsinline></video>
+
+<script>
+  function getQueryParam(name) {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(name);
+  }
+
+  const videoUrl = getQueryParam("url");
+
+  if (videoUrl) {
+    const player = videojs('video', {
+      autoplay: false,
+      muted: true,
+      controls: true,
+      preload: 'auto'
+    });
+
+    player.ready(function () {
+      player.src({
+        src: videoUrl,
+        type: 'application/x-mpegURL'
+      });
+
+      player.muted(true);
+      const promise = player.play();
+      if (promise !== undefined) {
+        promise.then(() => {
+          console.log("自动播放成功");
+        }).catch(err => {
+          console.warn("自动播放失败：", err);
+        });
+      }
+    });
+  } else {
+    document.body.innerHTML += "<p style='color:red;'>URL 参数缺失，例如 ?url=xxx.m3u8</p>";
+  }
+</script>
+
+</body>
+</html>
