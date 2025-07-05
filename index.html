@@ -2,11 +2,10 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Player</title>
-  <link rel="icon" href="data:,"> <!-- ✅ 不显示标签图标 -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/5.10.2/alt/video-js-cdn.css" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/5.10.2/video.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/videojs-contrib-hls/3.0.2/videojs-contrib-hls.js"></script>
+  <title>Proxy Player</title>
+  <link rel="icon" href="data:,">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/video.js/8.5.2/video-js.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/video.js/8.5.2/video.min.js"></script>
   <style>
     html, body {
       margin: 0;
@@ -22,7 +21,7 @@
 </head>
 <body>
 
-<video id="video" class="video-js vjs-default-skin" playsinline></video>
+<video id="video" class="video-js vjs-default-skin" controls autoplay muted></video>
 
 <script>
   function getQueryParam(name) {
@@ -30,34 +29,29 @@
     return url.searchParams.get(name);
   }
 
-  const videoUrl = getQueryParam("url");
+  const rawUrl = getQueryParam("url");
 
-  if (videoUrl) {
+  if (rawUrl) {
+    const encoded = encodeURIComponent(rawUrl);
+    const proxyUrl = `https://stream8555-1.onrender.com/proxy?url=${encoded}`;
+
     const player = videojs('video', {
-      autoplay: false,
+      autoplay: true,
       muted: true,
       controls: true,
       preload: 'auto'
     });
 
-    player.ready(function () {
-      player.src({
-        src: videoUrl,
-        type: 'application/x-mpegURL'
-      });
+    player.src({
+      src: proxyUrl,
+      type: 'application/x-mpegURL'
+    });
 
-      player.muted(true);
-      const promise = player.play();
-      if (promise !== undefined) {
-        promise.then(() => {
-          console.log("自动播放成功");
-        }).catch(err => {
-          console.warn("自动播放失败：", err);
-        });
-      }
+    player.ready(function () {
+      console.log("正在播放经代理的视频");
     });
   } else {
-    document.body.innerHTML += "<p style='color:red;'>URL 参数缺失，例如 ?url=xxx.m3u8</p>";
+    document.body.innerHTML = "<p style='color:white; text-align:center; padding-top:20%; font-size:20px;'>请在网址后添加 ?url=原始m3u8地址</p>";
   }
 </script>
 
