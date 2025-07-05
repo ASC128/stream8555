@@ -1,43 +1,35 @@
 const express = require('express');
+const request = require('request'); // 注意使用旧版 request 模块
 const cors = require('cors');
-const fetch = require('node-fetch'); // 如果是 Node 18+ 可省略此行
 const app = express();
 
 app.use(cors());
 
-app.get("/proxy", async (req, res) => {
+app.get("/proxy", (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send("Missing url");
 
-  try {
-    const response = await fetch(targetUrl);
-    const contentType = response.headers.get("content-type");
+  const headers = {
+    "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
+    "Referer": "https://anym3u8player.com", // 可以替换成其他来源页
+    "Origin": "https://anym3u8player.com"
+  };
 
-    // ✅ 如果是 .m3u8，则将 ts 路径也代理化
-    if (contentType && contentType.includes("application/vnd.apple.mpegurl")) {
-      const text = await response.text();
-      const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
-
-      const fixed = text.replace(/^(?!#)(.*\.ts.*)$/gm, line => {
-        const realUrl = line.startsWith("http") ? line : baseUrl + line;
-        return `/proxy?url=${encodeURIComponent(realUrl)}`;
-      });
-
-      res.set("Content-Type", "application/vnd.apple.mpegurl");
-      return res.send(fixed);
+  request.get({
+    url: targetUrl,
+    headers: headers,
+    encoding: null, // 保证返回 Buffer
+  }, (err, response, body) => {
+    if (err) {
+      return res.status(500).send("Proxy Failed: " + err.message);
     }
 
-    // ✅ 其他类型直接中转二进制
-    const buffer = await response.arrayBuffer();
-    res.set("Content-Type", contentType || "application/octet-stream");
-    return res.send(Buffer.from(buffer));
-  } catch (err) {
-    console.error("❌ Proxy error:", err.message);
-    return res.status(500).send("Proxy error: " + err.message);
-  }
+    res.set("Content-Type", response.headers["content-type"] || "application/octet-stream");
+    res.send(body);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Proxy server running: http://localhost:${PORT}`);
+  console.log(`✅ Proxy running at http://localhost:${PORT}`);
 });
