@@ -77,6 +77,7 @@
       const poster = sp.get('poster') || '';
       const wantFS = sp.get('fs') === '1';     // 打开页后提示一键全屏
 
+      log('Source: ' + src);
 
       const dp = new DPlayer({
         container: $('#dplayer'),
