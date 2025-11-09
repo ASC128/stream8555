@@ -3,69 +3,80 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>HLS Fullscreen Player</title>
-
+<meta name="referrer" content="no-referrer" />
+<title>HLS Player (no-referrer)</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
-
 <style>
-  html,body{
-    margin:0;
-    padding:0;
-    background:#000;
-    height:100%;
-    overflow:hidden;
-  }
-  #dplayer{
-    position:fixed;
-    inset:0;
-    width:100vw;
-    height:100vh;
-  }
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #dplayer{position:fixed;inset:0;width:100vw;height:100vh}
+  #msg{position:fixed;left:12px;top:12px;color:#fff;font:12px/1.4 system-ui,Arial;opacity:.9;pointer-events:none}
 </style>
 </head>
 <body>
 <div id="dplayer"></div>
+<div id="msg"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
 <script>
-function getSrc(){
+const $ = s => document.querySelector(s);
+const log = t => ($('#msg').textContent = ( $('#msg').textContent ? $('#msg').textContent + '\n' : '' ) + t);
+
+function getSrcFromQuery(){
   const url = new URL(location.href);
-  let src = url.searchParams.get("url") || "";
-  if(!src) return "";
-  try { src = decodeURIComponent(src); } catch(e){}
-  if(!/^https?:\/\//i.test(src)) src = "https://" + src.replace(/^\/+/, '');
+  const sp = url.searchParams;
+
+  let src = sp.get('url') || '';
+  if(!src) return '';
+
+  // 允许未编码和已编码
+  try{ src = decodeURIComponent(src); }catch(_){}
+  if(!/^https?:\/\//i.test(src)) src = 'https://' + src.replace(/^\/+/, '');
+
+  // 把除控制项外的参数并回 m3u8（如果你把 &wsABSTime 放外层）
+  const control = new Set(['url','autoplay','muted','poster']);
+  const extra = new URLSearchParams();
+  for (const [k,v] of sp.entries()) if(!control.has(k)) extra.append(k,v);
+  if ([...extra].length) src += (src.includes('?') ? '&' : '?') + extra.toString();
+
   return src;
 }
 
-const src = getSrc();
-if(!src){
-  document.body.innerHTML = "<center style='color:#fff;padding-top:40px;'>请使用 index.html?url=你的m3u8</center>";
+const SRC = getSrcFromQuery();
+if(!SRC){
+  document.body.innerHTML = "<center style='color:#fff;padding-top:40px'>用法：player.html?url=完整m3u8（建议URL编码）</center>";
 }else{
+  log('Source: ' + SRC);
+
   const dp = new DPlayer({
     container: document.getElementById('dplayer'),
-    video: { url: src, type: 'hls' },
-    autoplay: true,
-    screenshot: false,
-    preload: 'auto',
-    mutex: true
+    video: { url: SRC, type: 'hls' },
+    autoplay: true, screenshot: false, preload: 'auto', mutex: true
   });
 
   dp.on('loadedmetadata', ()=>{
     dp.video.setAttribute('playsinline','');
     dp.video.setAttribute('webkit-playsinline','');
-    dp.video.muted = true;  // **强制静音以确保自动播放**
+    dp.video.muted = true;  // 静音以确保自动播放
     dp.play().catch(()=>{});
   });
 
-  // **方案 A：防 403 禁止发送 Referer**
   const hls = dp.video.hls;
-  if(hls){
-    hls.config.fetchSetup = (context, init) => {
-      return Object.assign(init || {}, {
-        referrerPolicy: 'no-referrer' // ← 禁止发送 referer，解决 GitHub Pages 403
-      });
-    };
+  if (hls){
+    // 二次保障：让 hls.js 的所有分片/清单请求都不带 Referer
+    hls.config.fetchSetup = (ctx, init)=>Object.assign(init||{}, { referrerPolicy:'no-referrer' });
+
+    // 可选：更强的重试
+    Object.assign(hls.config, {
+      lowLatencyMode:true,
+      manifestLoadingMaxRetry:6, levelLoadingMaxRetry:6, fragLoadingMaxRetry:6,
+      manifestLoadingRetryDelay:1000, levelLoadingRetryDelay:1000, fragLoadingRetryDelay:1000
+    });
+
+    hls.on(Hls.Events.ERROR, (_, data)=>{
+      const code = data?.response?.code;
+      if (code) log('HLS error code: ' + code);
+    });
   }
 }
 </script>
