@@ -3,134 +3,71 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>HLS Fullscreen Autoplay</title>
+<title>HLS Fullscreen Player</title>
+
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
+
 <style>
-  :root { color-scheme: dark; }
-  html,body { height:100%; margin:0; background:#000; }
-  #wrap { position:fixed; inset:0; }
-  /* 让播放器铺满整个可视区域 */
-  #dplayer { position:absolute; inset:0; width:100vw; height:100vh; }
-  /* 顶部日志（可删） */
-  #log { position:fixed; left:12px; bottom:12px; color:#bbb; font:12px/1.4 system-ui,Arial; opacity:.8; pointer-events:none; }
-  /* 一键全屏提示层（首触发用） */
-  #fsHint {
-    position:fixed; inset:auto 12px 12px auto; z-index:9;
-    background:rgba(0,0,0,.6); border:1px solid #333; color:#eee;
-    padding:8px 10px; border-radius:10px; font:13px/1 system-ui,Arial; cursor:pointer;
+  html,body{
+    margin:0;
+    padding:0;
+    background:#000;
+    height:100%;
+    overflow:hidden;
   }
-  #inputBar { position:fixed; left:12px; top:12px; right:12px; display:none; gap:8px; z-index:10; }
-  #inputBar input, #inputBar button {
-    padding:10px; border-radius:10px; border:1px solid #333; background:#111; color:#eee; flex:1;
+  #dplayer{
+    position:fixed;
+    inset:0;
+    width:100vw;
+    height:100vh;
   }
 </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="dplayer"></div>
-    <div id="inputBar">
-      <input id="u" placeholder="粘贴 m3u8 或 index.html?url=..." />
-      <button id="go">Play</button>
-    </div>
-    <div id="fsHint" style="display:none">全屏</div>
-    <div id="log"></div>
-  </div>
+<div id="dplayer"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
-  <script>
-    const $ = s => document.querySelector(s);
-    const log = t => { const el = $('#log'); el.textContent = (el.textContent ? el.textContent + '\n' : '') + t; };
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
+<script>
+function getSrc(){
+  const url = new URL(location.href);
+  let src = url.searchParams.get("url") || "";
+  if(!src) return "";
+  try { src = decodeURIComponent(src); } catch(e){}
+  if(!/^https?:\/\//i.test(src)) src = "https://" + src.replace(/^\/+/, '');
+  return src;
+}
 
-    function getSrcFromQuery(){
-      const url = new URL(location.href);
-      let src = url.searchParams.get('url') || '';
-      if (!src) return '';
-      try { src = decodeURIComponent(src); } catch(e){}
-      // 允许把其它查询串拼回 m3u8（如果直接把 &xxx 放外面）
-      const controlKeys = new Set(['url','autoplay','muted','poster','fs']);
-      const extra = new URLSearchParams();
-      for (const [k,v] of url.searchParams.entries()){
-        if (!controlKeys.has(k)) extra.append(k,v);
-      }
-      if ([...extra].length) src += (src.includes('?') ? '&' : '?') + extra.toString();
-      if (!/^https?:\/\//i.test(src)) src = 'https://' + src.replace(/^\/+/, '');
-      return src.trim();
-    }
+const src = getSrc();
+if(!src){
+  document.body.innerHTML = "<center style='color:#fff;padding-top:40px;'>请使用 index.html?url=你的m3u8</center>";
+}else{
+  const dp = new DPlayer({
+    container: document.getElementById('dplayer'),
+    video: { url: src, type: 'hls' },
+    autoplay: true,
+    screenshot: false,
+    preload: 'auto',
+    mutex: true
+  });
 
-    async function boot(){
-      let src = getSrcFromQuery();
-      if (!src){
-        // 无参数时显示输入栏
-        $('#inputBar').style.display = 'flex';
-        $('#go').onclick = ()=>{
-          const val = $('#u').value.trim();
-          if (!val) return;
-          location.search = '?url=' + encodeURIComponent(val) + '&autoplay=1&muted=1&fs=1';
-        };
-        return;
-      }
+  dp.on('loadedmetadata', ()=>{
+    dp.video.setAttribute('playsinline','');
+    dp.video.setAttribute('webkit-playsinline','');
+    dp.video.muted = true;  // **强制静音以确保自动播放**
+    dp.play().catch(()=>{});
+  });
 
-      const sp = new URL(location.href).searchParams;
-      const auto = sp.get('autoplay') !== '0'; // 默认自动播放
-      const muted = sp.get('muted') !== '0';   // 默认静音
-      const poster = sp.get('poster') || '';
-      const wantFS = sp.get('fs') === '1';     // 打开页后提示一键全屏
-
-      const dp = new DPlayer({
-        container: $('#dplayer'),
-        video: { url: src, type: 'hls', pic: poster },
-        autoplay: auto, screenshot: false, preload: 'auto', mutex: true
+  // **方案 A：防 403 禁止发送 Referer**
+  const hls = dp.video.hls;
+  if(hls){
+    hls.config.fetchSetup = (context, init) => {
+      return Object.assign(init || {}, {
+        referrerPolicy: 'no-referrer' // ← 禁止发送 referer，解决 GitHub Pages 403
       });
-
-      // 提升自动播放命中率（静音 + 内联）
-      dp.on('loadedmetadata', ()=>{
-        dp.video.setAttribute('playsinline','');
-        dp.video.setAttribute('webkit-playsinline','');
-        dp.video.muted = muted;
-        if (auto) dp.play().catch(()=>{ /* 某些环境仍需一次用户交互 */ });
-      });
-
-      // hls.js 更强重试
-      const hls = dp.video.hls;
-      if (hls){
-        Object.assign(hls.config, {
-          lowLatencyMode: true,
-          manifestLoadingMaxRetry: 6, levelLoadingMaxRetry: 6, fragLoadingMaxRetry: 6,
-          manifestLoadingRetryDelay: 1000, levelLoadingRetryDelay: 1000, fragLoadingRetryDelay: 1000,
-          manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000, fragLoadingTimeOut: 20000
-        });
-        hls.on(Hls.Events.ERROR, (_, data)=> {
-          const code = data?.response?.code; const fatal = data?.fatal;
-          log(`[HLS ERROR] fatal=${!!fatal} code=${code||'n/a'}`);
-        });
-      }
-
-      // —— 全屏逻辑 ——
-      // 说明：大多数浏览器不允许“无用户手势”自动进入系统全屏。
-      // 这里提供两种：1) 播放器铺满整个页面（已实现）；2) 用户第一次点击时触发系统全屏。
-      function requestFS(){
-        try {
-          if (dp.fullScreen) { dp.fullScreen.request('web'); } // DPlayer 的全屏（DOM/Web 全屏）
-          else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
-        } catch(e) { /* 忽略 */ }
-      }
-
-      if (wantFS){
-        // 显示一个小按钮，用户点一下即可进入全屏
-        const hint = $('#fsHint');
-        hint.style.display = 'block';
-        hint.onclick = ()=>{
-          requestFS();
-          hint.style.display = 'none';
-        };
-        // 也可以把“首次任意点击”当触发
-        const once = ()=>{ requestFS(); hint.style.display='none'; window.removeEventListener('pointerdown', once, {passive:true}); };
-        window.addEventListener('pointerdown', once, { passive:true, once:true });
-      }
-    }
-
-    boot();
-  </script>
+    };
+  }
+}
+</script>
 </body>
 </html>
