@@ -7,144 +7,75 @@
 <title>HLS Player</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
 <style>
-  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  html,body{margin:0;background:#000;height:100%;overflow:hidden}
   #dplayer{position:fixed;inset:0;width:100vw;height:100vh}
-  #msg{position:fixed;left:12px;bottom:12px;color:#bbb;font:12px/1.4 system-ui,Arial;opacity:.9;pointer-events:none;white-space:pre-wrap}
-  #bar{position:fixed;left:12px;top:12px;right:12px;display:none;gap:8px}
+  #bar{position:fixed;left:12px;top:12px;right:12px;display:none;gap:8px;z-index:10}
   #bar input,#bar button{padding:10px;border-radius:10px;border:1px solid #333;background:#111;color:#eee}
 </style>
 </head>
 <body>
 <div id="dplayer"></div>
-<div id="msg"></div>
 <div id="bar">
-  <input id="u" placeholder="粘贴完整 m3u8 或页面地址带 ?url=" />
+  <input id="u" placeholder="粘贴 m3u8 或 ?url= 链接" />
   <button id="go">Play</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
 <script>
-/** ========= 可根据需要修改的开关 ========= **/
-/** 若要自动把上游源改走 Worker，请填你的 Worker 域名；不需要可留空 "" */
-const WORKER_ORIGIN = "https://stream8555.ascasc128.workers.dev";
-/** 自动播放/静音/提示全屏 的默认值（URL 参数可覆盖） */
-const DEFAULTS = { autoplay: true, muted: true, fsHint: true };
-/** ===================================== **/
+const WORKER_ORIGIN = "https://stream8555.ascasc128.workers.dev"; // <- 保持
 
 const $ = s => document.querySelector(s);
-const log = t => $('#msg').textContent = ($('#msg').textContent ? $('#msg').textContent + '\n' : '') + t;
 
-function getParamSrc(){
-  const url = new URL(location.href);
-  const sp = url.searchParams;
-  let src = sp.get('url') || "";
-  if (!src) return "";
-  try { src = decodeURIComponent(src); } catch{};
-  if (!/^https?:\/\//i.test(src)) src = 'https://' + src.replace(/^\/+/, '');
-  // 把除控制项外的其它参数并回 m3u8（若用户把 &wsABSTime 放在外层）
-  const control = new Set(['url','autoplay','muted','poster','fs']);
+function getSrc(){
+  const sp = new URL(location).searchParams;
+  let src = sp.get('url');
+  if(!src) return "";
+  try{ src = decodeURIComponent(src); }catch{}
+  if(!/^https?:\/\//i.test(src)) src = 'https://' + src;
+  // 透传其他参数（如 wsSecret/wsABSTime）
   const extra = new URLSearchParams();
-  for (const [k,v] of sp.entries()) if(!control.has(k)) extra.append(k,v);
-  if ([...extra].length) src += (src.includes('?') ? '&' : '?') + extra.toString();
+  for(const [k,v] of sp.entries()) if(k!=="url") extra.append(k,v);
+  if([...extra].length) src += (src.includes('?')?'&':'?')+extra.toString();
   return src;
 }
 
-// 如果是上游 hls.zb252398829.com 并配置了 WORKER_ORIGIN，则改写为 Worker 前缀
-function maybeWrapWithWorker(src){
-  if (!WORKER_ORIGIN) return src;
+function wrapToWorker(src){
+  if(!WORKER_ORIGIN) return src;
   try{
     const u = new URL(src);
-    if (/^hls\.zb252398829\.com$/i.test(u.hostname)) {
-      // 例： https://hls.../sport/202_xxx/playlist.m3u8?...
-      const path = u.pathname.replace(/^\/+/, ''); // sport/202_xxx/playlist.m3u8
-      return `${WORKER_ORIGIN}/hls/${path}${u.search || ''}`;
+    if(/hls\.zb252398829\.com/i.test(u.hostname)){
+      const p = u.pathname.replace(/^\/+/,'');
+      return `${WORKER_ORIGIN}/hls/${p}${u.search}`;
     }
   }catch{}
   return src;
 }
 
-function readFlags(){
-  const sp = new URL(location.href).searchParams;
-  return {
-    autoplay: sp.get('autoplay') === '1' || (sp.get('autoplay')===null && DEFAULTS.autoplay),
-    muted:    sp.get('muted')    !== '0' && (sp.get('muted')!== '1' ? DEFAULTS.muted : true),
-    poster:   sp.get('poster') || '',
-    fs:       sp.get('fs') === '1' || (sp.get('fs')===null && DEFAULTS.fsHint)
-  };
-}
-
-async function boot(){
-  let src = getParamSrc();
-  if (!src){
-    // 无 ?url= 时，给输入栏
-    $('#bar').style.display = 'flex';
-    $('#go').onclick = ()=>{
-      const val = $('#u').value.trim();
-      if (!val) return;
-      location.search = '?url=' + encodeURIComponent(val) + '&autoplay=1&muted=1&fs=1';
-    };
+function boot(){
+  let src = getSrc();
+  if(!src){
+    $('#bar').style.display='flex';
+    $('#go').onclick=()=>location.search='?url='+encodeURIComponent($('#u').value)+'&autoplay=1&muted=1';
     return;
   }
 
-  src = maybeWrapWithWorker(src);
-  const flags = readFlags();
-  log('Source: ' + src);
+  src = wrapToWorker(src);
 
   const dp = new DPlayer({
     container: $('#dplayer'),
-    video: { url: src, type: 'hls', pic: flags.poster },
-    autoplay: flags.autoplay,
-    screenshot: false,
-    preload: 'auto',
-    mutex: true
+    video: { url: src, type: 'hls' },
+    autoplay: true,
+    mutex: true,
+    preload: 'auto'
   });
 
-  // 提升自动播放成功率（静音 + 内联）
-  dp.on('loadedmetadata', ()=>{
+  dp.on('loadedmetadata', () => {
     dp.video.setAttribute('playsinline','');
     dp.video.setAttribute('webkit-playsinline','');
-    dp.video.muted = !!flags.muted;
-    if (flags.autoplay) dp.play().catch(()=>{});
+    dp.video.muted = true;
+    dp.play().catch(()=>{});
   });
-
-  // hls.js：禁止 Referer（前端层面的能做就做），并增强重试
-  const hls = dp.video.hls;
-  if (hls){
-    hls.config.fetchSetup = (ctx, init)=>Object.assign(init||{}, { referrerPolicy:'no-referrer' });
-    Object.assign(hls.config, {
-      lowLatencyMode: true,
-      manifestLoadingMaxRetry: 6, levelLoadingMaxRetry: 6, fragLoadingMaxRetry: 6,
-      manifestLoadingRetryDelay: 1000, levelLoadingRetryDelay: 1000, fragLoadingRetryDelay: 1000,
-      manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000, fragLoadingTimeOut: 20000
-    });
-    hls.on(Hls.Events.ERROR, (_, data)=>{
-      const code = data?.response?.code;
-      if (code) log('HLS error code: ' + code);
-    });
-  }
-
-  // 一键全屏提示（系统级全屏必须用户手势）
-  if (flags.fs){
-    const hint = document.createElement('button');
-    hint.textContent = '全屏';
-    Object.assign(hint.style,{
-      position:'fixed', right:'12px', bottom:'12px', zIndex:9,
-      background:'rgba(0,0,0,.6)', border:'1px solid #333', color:'#eee',
-      padding:'8px 10px', borderRadius:'10px', cursor:'pointer'
-    });
-    hint.onclick = ()=>{
-      try{
-        if (dp.fullScreen) dp.fullScreen.request('web');
-        else document.documentElement.requestFullscreen?.();
-      }catch{}
-      hint.remove();
-    };
-    document.body.appendChild(hint);
-    // 首次任意点击也尝试全屏
-    const once = ()=>{ hint.click(); window.removeEventListener('pointerdown', once, {passive:true}); };
-    window.addEventListener('pointerdown', once, { passive:true, once:true });
-  }
 }
 
 boot();
