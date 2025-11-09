@@ -3,136 +3,151 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>HLS Fullscreen Autoplay</title>
+<meta name="referrer" content="no-referrer" />
+<title>HLS Player</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
 <style>
-  :root { color-scheme: dark; }
-  html,body { height:100%; margin:0; background:#000; }
-  #wrap { position:fixed; inset:0; }
-  /* 让播放器铺满整个可视区域 */
-  #dplayer { position:absolute; inset:0; width:100vw; height:100vh; }
-  /* 顶部日志（可删） */
-  #log { position:fixed; left:12px; bottom:12px; color:#bbb; font:12px/1.4 system-ui,Arial; opacity:.8; pointer-events:none; }
-  /* 一键全屏提示层（首触发用） */
-  #fsHint {
-    position:fixed; inset:auto 12px 12px auto; z-index:9;
-    background:rgba(0,0,0,.6); border:1px solid #333; color:#eee;
-    padding:8px 10px; border-radius:10px; font:13px/1 system-ui,Arial; cursor:pointer;
-  }
-  #inputBar { position:fixed; left:12px; top:12px; right:12px; display:none; gap:8px; z-index:10; }
-  #inputBar input, #inputBar button {
-    padding:10px; border-radius:10px; border:1px solid #333; background:#111; color:#eee; flex:1;
-  }
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #dplayer{position:fixed;inset:0;width:100vw;height:100vh}
+  #msg{position:fixed;left:12px;bottom:12px;color:#bbb;font:12px/1.4 system-ui,Arial;opacity:.9;pointer-events:none;white-space:pre-wrap}
+  #bar{position:fixed;left:12px;top:12px;right:12px;display:none;gap:8px}
+  #bar input,#bar button{padding:10px;border-radius:10px;border:1px solid #333;background:#111;color:#eee}
 </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="dplayer"></div>
-    <div id="inputBar">
-      <input id="u" placeholder="粘贴 m3u8 或 index.html?url=..." />
-      <button id="go">Play</button>
-    </div>
-    <div id="fsHint" style="display:none">全屏</div>
-    <div id="log"></div>
-  </div>
+<div id="dplayer"></div>
+<div id="msg"></div>
+<div id="bar">
+  <input id="u" placeholder="粘贴完整 m3u8 或页面地址带 ?url=" />
+  <button id="go">Play</button>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
-  <script>
-    const $ = s => document.querySelector(s);
-    const log = t => { const el = $('#log'); el.textContent = (el.textContent ? el.textContent + '\n' : '') + t; };
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
+<script>
+/** ========= 可根据需要修改的开关 ========= **/
+/** 若要自动把上游源改走 Worker，请填你的 Worker 域名；不需要可留空 "" */
+const WORKER_ORIGIN = "https://stream8555.ascasc128.workers.dev";
+/** 自动播放/静音/提示全屏 的默认值（URL 参数可覆盖） */
+const DEFAULTS = { autoplay: true, muted: true, fsHint: true };
+/** ===================================== **/
 
-    function getSrcFromQuery(){
-      const url = new URL(location.href);
-      let src = url.searchParams.get('url') || '';
-      if (!src) return '';
-      try { src = decodeURIComponent(src); } catch(e){}
-      // 允许把其它查询串拼回 m3u8（如果直接把 &xxx 放外面）
-      const controlKeys = new Set(['url','autoplay','muted','poster','fs']);
-      const extra = new URLSearchParams();
-      for (const [k,v] of url.searchParams.entries()){
-        if (!controlKeys.has(k)) extra.append(k,v);
-      }
-      if ([...extra].length) src += (src.includes('?') ? '&' : '?') + extra.toString();
-      if (!/^https?:\/\//i.test(src)) src = 'https://' + src.replace(/^\/+/, '');
-      return src.trim();
+const $ = s => document.querySelector(s);
+const log = t => $('#msg').textContent = ($('#msg').textContent ? $('#msg').textContent + '\n' : '') + t;
+
+function getParamSrc(){
+  const url = new URL(location.href);
+  const sp = url.searchParams;
+  let src = sp.get('url') || "";
+  if (!src) return "";
+  try { src = decodeURIComponent(src); } catch{};
+  if (!/^https?:\/\//i.test(src)) src = 'https://' + src.replace(/^\/+/, '');
+  // 把除控制项外的其它参数并回 m3u8（若用户把 &wsABSTime 放在外层）
+  const control = new Set(['url','autoplay','muted','poster','fs']);
+  const extra = new URLSearchParams();
+  for (const [k,v] of sp.entries()) if(!control.has(k)) extra.append(k,v);
+  if ([...extra].length) src += (src.includes('?') ? '&' : '?') + extra.toString();
+  return src;
+}
+
+// 如果是上游 hls.zb252398829.com 并配置了 WORKER_ORIGIN，则改写为 Worker 前缀
+function maybeWrapWithWorker(src){
+  if (!WORKER_ORIGIN) return src;
+  try{
+    const u = new URL(src);
+    if (/^hls\.zb252398829\.com$/i.test(u.hostname)) {
+      // 例： https://hls.../sport/202_xxx/playlist.m3u8?...
+      const path = u.pathname.replace(/^\/+/, ''); // sport/202_xxx/playlist.m3u8
+      return `${WORKER_ORIGIN}/hls/${path}${u.search || ''}`;
     }
+  }catch{}
+  return src;
+}
 
-    async function boot(){
-      let src = getSrcFromQuery();
-      if (!src){
-        // 无参数时显示输入栏
-        $('#inputBar').style.display = 'flex';
-        $('#go').onclick = ()=>{
-          const val = $('#u').value.trim();
-          if (!val) return;
-          location.search = '?url=' + encodeURIComponent(val) + '&autoplay=1&muted=1&fs=1';
-        };
-        return;
-      }
+function readFlags(){
+  const sp = new URL(location.href).searchParams;
+  return {
+    autoplay: sp.get('autoplay') === '1' || (sp.get('autoplay')===null && DEFAULTS.autoplay),
+    muted:    sp.get('muted')    !== '0' && (sp.get('muted')!== '1' ? DEFAULTS.muted : true),
+    poster:   sp.get('poster') || '',
+    fs:       sp.get('fs') === '1' || (sp.get('fs')===null && DEFAULTS.fsHint)
+  };
+}
 
-      const sp = new URL(location.href).searchParams;
-      const auto = sp.get('autoplay') !== '0'; // 默认自动播放
-      const muted = sp.get('muted') !== '0';   // 默认静音
-      const poster = sp.get('poster') || '';
-      const wantFS = sp.get('fs') === '1';     // 打开页后提示一键全屏
+async function boot(){
+  let src = getParamSrc();
+  if (!src){
+    // 无 ?url= 时，给输入栏
+    $('#bar').style.display = 'flex';
+    $('#go').onclick = ()=>{
+      const val = $('#u').value.trim();
+      if (!val) return;
+      location.search = '?url=' + encodeURIComponent(val) + '&autoplay=1&muted=1&fs=1';
+    };
+    return;
+  }
 
-      log('Source: ' + src);
+  src = maybeWrapWithWorker(src);
+  const flags = readFlags();
+  log('Source: ' + src);
 
-      const dp = new DPlayer({
-        container: $('#dplayer'),
-        video: { url: src, type: 'hls', pic: poster },
-        autoplay: auto, screenshot: false, preload: 'auto', mutex: true
-      });
+  const dp = new DPlayer({
+    container: $('#dplayer'),
+    video: { url: src, type: 'hls', pic: flags.poster },
+    autoplay: flags.autoplay,
+    screenshot: false,
+    preload: 'auto',
+    mutex: true
+  });
 
-      // 提升自动播放命中率（静音 + 内联）
-      dp.on('loadedmetadata', ()=>{
-        dp.video.setAttribute('playsinline','');
-        dp.video.setAttribute('webkit-playsinline','');
-        dp.video.muted = muted;
-        if (auto) dp.play().catch(()=>{ /* 某些环境仍需一次用户交互 */ });
-      });
+  // 提升自动播放成功率（静音 + 内联）
+  dp.on('loadedmetadata', ()=>{
+    dp.video.setAttribute('playsinline','');
+    dp.video.setAttribute('webkit-playsinline','');
+    dp.video.muted = !!flags.muted;
+    if (flags.autoplay) dp.play().catch(()=>{});
+  });
 
-      // hls.js 更强重试
-      const hls = dp.video.hls;
-      if (hls){
-        Object.assign(hls.config, {
-          lowLatencyMode: true,
-          manifestLoadingMaxRetry: 6, levelLoadingMaxRetry: 6, fragLoadingMaxRetry: 6,
-          manifestLoadingRetryDelay: 1000, levelLoadingRetryDelay: 1000, fragLoadingRetryDelay: 1000,
-          manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000, fragLoadingTimeOut: 20000
-        });
-        hls.on(Hls.Events.ERROR, (_, data)=> {
-          const code = data?.response?.code; const fatal = data?.fatal;
-          log(`[HLS ERROR] fatal=${!!fatal} code=${code||'n/a'}`);
-        });
-      }
+  // hls.js：禁止 Referer（前端层面的能做就做），并增强重试
+  const hls = dp.video.hls;
+  if (hls){
+    hls.config.fetchSetup = (ctx, init)=>Object.assign(init||{}, { referrerPolicy:'no-referrer' });
+    Object.assign(hls.config, {
+      lowLatencyMode: true,
+      manifestLoadingMaxRetry: 6, levelLoadingMaxRetry: 6, fragLoadingMaxRetry: 6,
+      manifestLoadingRetryDelay: 1000, levelLoadingRetryDelay: 1000, fragLoadingRetryDelay: 1000,
+      manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000, fragLoadingTimeOut: 20000
+    });
+    hls.on(Hls.Events.ERROR, (_, data)=>{
+      const code = data?.response?.code;
+      if (code) log('HLS error code: ' + code);
+    });
+  }
 
-      // —— 全屏逻辑 ——
-      // 说明：大多数浏览器不允许“无用户手势”自动进入系统全屏。
-      // 这里提供两种：1) 播放器铺满整个页面（已实现）；2) 用户第一次点击时触发系统全屏。
-      function requestFS(){
-        try {
-          if (dp.fullScreen) { dp.fullScreen.request('web'); } // DPlayer 的全屏（DOM/Web 全屏）
-          else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
-        } catch(e) { /* 忽略 */ }
-      }
+  // 一键全屏提示（系统级全屏必须用户手势）
+  if (flags.fs){
+    const hint = document.createElement('button');
+    hint.textContent = '全屏';
+    Object.assign(hint.style,{
+      position:'fixed', right:'12px', bottom:'12px', zIndex:9,
+      background:'rgba(0,0,0,.6)', border:'1px solid #333', color:'#eee',
+      padding:'8px 10px', borderRadius:'10px', cursor:'pointer'
+    });
+    hint.onclick = ()=>{
+      try{
+        if (dp.fullScreen) dp.fullScreen.request('web');
+        else document.documentElement.requestFullscreen?.();
+      }catch{}
+      hint.remove();
+    };
+    document.body.appendChild(hint);
+    // 首次任意点击也尝试全屏
+    const once = ()=>{ hint.click(); window.removeEventListener('pointerdown', once, {passive:true}); };
+    window.addEventListener('pointerdown', once, { passive:true, once:true });
+  }
+}
 
-      if (wantFS){
-        // 显示一个小按钮，用户点一下即可进入全屏
-        const hint = $('#fsHint');
-        hint.style.display = 'block';
-        hint.onclick = ()=>{
-          requestFS();
-          hint.style.display = 'none';
-        };
-        // 也可以把“首次任意点击”当触发
-        const once = ()=>{ requestFS(); hint.style.display='none'; window.removeEventListener('pointerdown', once, {passive:true}); };
-        window.addEventListener('pointerdown', once, { passive:true, once:true });
-      }
-    }
-
-    boot();
-  </script>
+boot();
+</script>
 </body>
 </html>
