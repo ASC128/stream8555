@@ -1,90 +1,59 @@
-<!doctype html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta charset="UTF-8">
+<title>Stream Player</title>
 <meta name="referrer" content="no-referrer">
-<title>HLS Player</title>
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17"></script>
 <style>
-  html,body{margin:0;height:100%;background:#000}
-  video{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;background:#000}
+html,body{margin:0;padding:0;background:#000;height:100%;}
+.artplayer-app{width:100vw;height:100vh;}
 </style>
 </head>
 <body>
-<video id="v" playsinline webkit-playsinline></video>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<div class="artplayer-app"></div>
+
 <script>
-/** 可选：如果传入的是上游直链，自动改写到你的 Worker；若不需要可留空 "" */
 const WORKER_ORIGIN = "https://stream8555.ascasc128.workers.dev";
 
-const sp = new URL(location.href).searchParams;
-const AUTOPLAY = sp.get('autoplay') !== '0';
-const MUTED    = sp.get('muted') !== '0';
-const CONTROLS = sp.get('controls') !== '0';
-const DEBUG    = sp.get('debug') === '1';
-
-function normalizeSrc(raw){
-  if (!raw) return "";
-  try{ raw = decodeURIComponent(raw); }catch{}
-  if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw.replace(/^\/+/, '');
-
-  // 如果是上游域名并设置了 WORKER_ORIGIN，则改写
-  try {
-    const u = new URL(raw);
-    if (WORKER_ORIGIN && /^hls\.zb252398829\.com$/i.test(u.hostname)) {
-      const path = u.pathname.replace(/^\/+/, '');
-      return WORKER_ORIGIN + '/hls/' + path + (u.search || '');
+function toWorker(url) {
+    try { url = decodeURIComponent(url); } catch(e){}
+    const u = new URL(url);
+    if (u.hostname.includes("hls.zb252")) {
+        const path = u.pathname.replace(/^\//,'');
+        return `${WORKER_ORIGIN}/hls/${path}${u.search}`;
     }
-  } catch(e) {}
-  return raw;
+    return url;
 }
 
-(function boot(){
-  const urlParam = sp.get('url') || "";
-  if (!urlParam) {
-    document.body.style.color = '#fff';
-    document.body.style.display = 'grid';
-    document.body.style.placeItems = 'center';
-    document.body.innerHTML = '<div style="text-align:center;opacity:.8">用法：player.html?url=（URL 编码的 m3u8 链接）</div>';
-    return;
-  }
-
-  const src = normalizeSrc(urlParam);
-  const video = document.getElementById('v');
-  video.muted = MUTED;
-  video.autoplay = AUTOPLAY;
-  video.controls = CONTROLS;
-
-  if (Hls.isSupported()) {
-    const hls = new Hls({
-      // 稳定性参数（可按需微调）
-      lowLatencyMode: true,
-      maxLiveSyncPlaybackRate: 1.5,
-      fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 1000,
-      manifestLoadingMaxRetry: 6,
-      manifestLoadingRetryDelay: 1000,
-      levelLoadingMaxRetry: 6,
-      levelLoadingRetryDelay: 1000
-    });
-    if (DEBUG) {
-      Hls.DefaultConfig.debug = true;
-      hls.on(Hls.Events.ERROR, (e,d)=>console.warn('hls.js error', d));
+function playM3u8(video, url, art) {
+    if (Hls.isSupported()) {
+        if (art.hls) art.hls.destroy();
+        const hls = new Hls({lowLatencyMode:true});
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        art.hls = hls;
+        art.on("destroy", () => hls.destroy());
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = url;
     }
-    hls.loadSource(src);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function(){
-      if (AUTOPLAY) video.play().catch(()=>{});
-    });
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    // Safari 原生
-    video.src = src;
-    video.addEventListener('loadedmetadata', ()=>{ if (AUTOPLAY) video.play().catch(()=>{}); });
-  } else {
-    document.body.innerHTML = '<div style="color:#fff;text-align:center;margin:20px">当前浏览器不支持 HLS。</div>';
-  }
-})();
+}
+
+const params = new URL(location.href).searchParams;
+const raw = params.get("url");
+const playUrl = toWorker(raw);
+
+const art = new Artplayer({
+    container: '.artplayer-app',
+    url: playUrl,
+    type: 'm3u8',
+    autoplay: true,
+    muted: true,
+    customType: { m3u8: playM3u8 },
+});
 </script>
+
 </body>
 </html>
