@@ -11,10 +11,43 @@
   #dplayer{position:fixed;inset:0;width:100vw;height:100vh}
   #bar{position:fixed;left:12px;top:12px;right:12px;display:none;gap:8px;z-index:10}
   #bar input,#bar button{padding:10px;border-radius:10px;border:1px solid #333;background:#111;color:#eee}
+  /* 移动端：隐藏 DPlayer 控件，改用原生 controls */
+  body.mobile-native .dplayer-controller,
+  body.mobile-native .dplayer-mask,
+  body.mobile-native .dplayer-logo{display:none !important}
+  body.mobile-native video{z-index:10}
+
+  /* 自定义移动端音量条 */
+  #m-vol{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    z-index:200;display:none;align-items:center;gap:10px;
+    background:rgba(0,0,0,0.6);border-radius:24px;
+    padding:10px 18px;backdrop-filter:blur(6px);
+  }
+  #m-mute{
+    background:none;border:none;color:#fff;font-size:22px;
+    cursor:pointer;padding:0;line-height:1;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #m-slider{
+    -webkit-appearance:none;appearance:none;
+    width:140px;height:4px;border-radius:2px;
+    background:#555;outline:none;cursor:pointer;
+  }
+  #m-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;width:20px;height:20px;
+    border-radius:50%;background:#fff;cursor:pointer;
+  }
+  /* iOS 不显示滑块 */
+  body.ios-device #m-slider{display:none}
 </style>
 </head>
 <body>
 <div id="dplayer"></div>
+<div id="m-vol">
+  <button id="m-mute">🔇</button>
+  <input id="m-slider" type="range" min="0" max="1" step="0.05" value="1">
+</div>
 <div id="bar">
   <input id="u" placeholder="粘贴 m3u8 或 ?url= 链接" />
   <button id="go">Play</button>
@@ -70,12 +103,21 @@ function boot(){
     preload: 'auto'
   });
 
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   dp.on('loadedmetadata', () => {
     dp.video.setAttribute('playsinline','');
     dp.video.setAttribute('webkit-playsinline','');
+    // 静音自动播放（浏览器策略要求），用户可通过原生控件/音量键取消静音
     dp.video.muted = true;
     dp.play().catch(()=>{});
   });
+
+  if(isMobile){
+    // 启用原生控件，隐藏 DPlayer UI
+    document.body.classList.add('mobile-native');
+    dp.video.controls = true;
+  }
 }
 
 boot();
